@@ -1,0 +1,575 @@
+import * as THREE from 'three';
+import { OrbitControls } from 'OrbitControls';
+import { ColladaLoader } from 'ColladaLoader';
+import { Trail } from 'trails';
+
+
+var mat4 = glMatrix.mat4;
+var vec3 = glMatrix.vec4;
+
+var $window = $(window);
+var $container = $('#container3D');
+
+var renderer, camera, scene, controls;
+
+var sol, tierra, luna, iss, apollo, estrellas;
+var tiempo = 0;
+
+var distanciaCam = 30;
+var lastTargetPos = null;
+
+// Agrego el modelo de estrellas.dae que es simplemente una esfera.
+var modelos = {
+    "sol.dae": null,
+    "apollo.dae": null,
+    "iss.dae": null,
+    "tierra.dae": null,
+    "luna.dae": null,
+    "estrellas.dae": null,
+}
+
+// Agrego la textura de las estrellas
+var texturas = {
+    "earth2.jpg": null,
+    "sun.jpg": null,
+    "moon2.jpg": null,
+    "refmap1b.jpg": null,
+    "stars.jpg": null,
+}
+
+var materiales;
+
+var currentCameraTarget = 0;
+
+var cameraTargets = [
+    "sol.dae",
+    "tierra.dae",
+    "luna.dae",
+    "iss.dae",
+    "apollo.dae"
+]
+var lastRelCameraPositions = [null, null, null, null, null];
+
+
+var speed = 1;
+
+var trail1, trail2, trail3;
+
+
+function start() {
+
+    // configuración básica de Three.js
+    renderer = new THREE.WebGLRenderer({ antialias: true });
+    renderer.setSize($window.width() - 5, $window.height() - 5);
+
+    var aspect = $window.width() / $window.height();
+
+    camera = new THREE.PerspectiveCamera(45, aspect, 0.1, 100000);
+    camera.position.set(-80, 80, 80);
+    //camera.lookAt(new THREE.Vector3(0,0,0));
+
+    scene = new THREE.Scene();
+    controls = new OrbitControls(camera, renderer.domElement);
+
+    $container.append(renderer.domElement);
+    $window.resize(onResize);
+
+    // Defino elementos de la escena
+
+    var ambienLight = new THREE.AmbientLight(0x222266);
+    scene.add(ambienLight);
+
+    var light1 = new THREE.PointLight(0xFFEEEE, 1);
+    light1.position.set(0, 0, 0);
+    scene.add(light1);
+
+    var gridHelper = new THREE.GridHelper(400, 20, new THREE.Color(0x666666), new THREE.Color(0x333333));
+    scene.add(gridHelper);
+
+    var axesHelper = new THREE.AxesHelper(8);
+    scene.add(axesHelper);
+
+
+
+    trail3 = new Trail(1000, new THREE.Vector3(0, 0, 0), 0.15, scene);
+    trail2 = new Trail(1000, new THREE.Vector3(0, 0, 0), 0.45, scene);
+    trail1 = new Trail(1000, new THREE.Vector3(0, 0, 0), 0.75, scene);
+}
+
+
+
+function loadTextures() {
+
+    var manager = new THREE.LoadingManager();
+
+    manager.onStart = function (url, itemsLoaded, itemsTotal) {
+        //console.log( 'Cargando textura: ' + url + '.\nCargadas ' + itemsLoaded + ' de ' + itemsTotal + ' texturas.' );
+    };
+
+    manager.onLoad = function () {
+        console.log('Carga de texturas completa');
+    };
+
+    manager.onProgress = function (url, itemsLoaded, itemsTotal) {
+        console.log('Cargando textura: ' + url + '.\nCargadas ' + itemsLoaded + ' de ' + itemsTotal + ' texturas.');
+        if (itemsLoaded == itemsTotal) createScene();
+    };
+
+    manager.onError = function (url) {
+        console.log('Hubo un error al cargar ' + url);
+    };
+
+    var filenames = Object.keys(texturas);
+
+    for (var i = 0; i < filenames.length; i++) {
+        var loader = new THREE.TextureLoader(manager);
+        loader.load('maps/' + filenames[i], onTextureLoaded.bind(this, filenames[i]));
+    }
+
+}
+
+function onTextureLoaded(file, texture) {
+    console.log("onTextureLoaded " + file)
+    texturas[file] = texture;
+}
+
+function createScene() {
+
+
+    materiales = {
+        "tierra": new THREE.MeshPhongMaterial({
+            color: 0xFFFFFF,
+            specular: 0xFFFFFF,
+            shininess: 2,
+            emissive: 0x222222,
+            map: texturas["earth2.jpg"],
+
+        }),
+        // Agrego las estrellas. Todavía no estoy segurocomo funciona el 
+        // MeshPhongMaterial pero encontré que con esta configuracion
+        // es como mejor se ve
+        "estrellas": new THREE.MeshPhongMaterial({
+            shininess: 0,
+            map: texturas["stars.jpg"],
+            // Hace que el modelo se vea desde la parte de "atras" (osea dentro de la esfera)
+            side: THREE.BackSide
+
+        }),
+        "sol": new THREE.MeshPhongMaterial({
+            color: 0xFFFFFF,
+            shininess: 1,
+            map: texturas["sun.jpg"],
+            lightMap: texturas["sun.jpg"],
+
+        }),
+        "luna": new THREE.MeshPhongMaterial({
+            color: 0xAAAAAA,
+            emissive: 0x222222,
+            shininess: 2,
+            map: texturas["moon2.jpg"],
+
+        }),
+        "apollo": new THREE.MeshPhongMaterial({
+            color: 0x666666,
+            specular: 0x993300,
+            emissive: 0x993300,
+            shininess: 64,
+            //envMap:texturas["refmap1b.jpg"],                
+            side: THREE.DoubleSide
+        }),
+        "iss": new THREE.MeshPhongMaterial({
+            color: 0x666666,
+            specular: 0x999999,
+            emissive: 0x333333,
+            shininess: 64,
+            //envMap:texturas["refmap1b.jpg"],                
+            side: THREE.DoubleSide
+        })
+    };
+
+
+
+    var manager = new THREE.LoadingManager();
+
+    manager.onStart = function (url, itemsLoaded, itemsTotal) {
+        console.log('Cargando modelo: ' + url + '.\nCargados ' + itemsLoaded + ' de ' + itemsTotal + ' modelos.');
+    };
+
+    manager.onLoad = function () {
+        console.log('Carga de modelos completa');
+    };
+
+    manager.onProgress = function (url, itemsLoaded, itemsTotal) {
+        console.log('Cargando archivo: ' + url + '.\nCargados ' + itemsLoaded + ' de ' + itemsTotal + ' modelos.');
+        if (itemsLoaded == itemsTotal) onModelsLoaded();
+    };
+
+    manager.onError = function (url) {
+        console.log('Hubo un error al cargar ' + url);
+
+    };
+
+    var filenames = Object.keys(modelos);
+
+    for (var i = 0; i < filenames.length; i++) {
+        var loader = new ColladaLoader(manager);
+        loader.load('modelos/' + filenames[i], onModelLoaded.bind(this, filenames[i]));
+    }
+
+}
+
+function onModelLoaded(filename, collada) {
+    //console.log(collada.scene.children[0]);                  
+    modelos[filename] = collada.scene.children[0];
+    modelos[filename].rotation.set(0, 0, 0);
+    modelos[filename].position.set(0, 0, 0);
+
+    var escala = 3;
+    switch (filename) {
+
+        case "tierra.dae": escala = 15; break;
+        case "luna.dae": escala = 7; break;
+        //No permito que se creen los axes para el "skysphere" (o ¿skybox?)
+        case "estrellas.dae": return;
+    }
+    var axesHelper = new THREE.AxesHelper(escala);
+    modelos[filename].add(axesHelper);
+}
+
+function toggleCam() {
+
+    // guardo la posicion relativa de la camara al target
+    var camPos = camera.position.clone();
+    var targetPos = modelos[cameraTargets[currentCameraTarget]].localToWorld(new THREE.Vector3(0, 0, 0));
+    var relCamPos = camPos.clone();
+    relCamPos.sub(targetPos);
+    lastRelCameraPositions[currentCameraTarget] = relCamPos;
+
+    console.log("posicion relativa del target " + currentCameraTarget + ": ");
+    console.log(relCamPos);
+
+    // incremento currentCameraTarget
+    if (currentCameraTarget < cameraTargets.length - 1) currentCameraTarget++;
+    else currentCameraTarget = 0;
+
+    if (lastRelCameraPositions[currentCameraTarget] != null) {
+        var targetPos = modelos[cameraTargets[currentCameraTarget]].localToWorld(new THREE.Vector3(0, 0, 0));
+        var p = lastRelCameraPositions[currentCameraTarget].clone();
+
+        console.log("posicion relativa recuperada del " + currentCameraTarget + ": ");
+        console.log(p);
+
+        p.add(targetPos);
+        camera.position.copy(p);
+        controls.target.copy(targetPos);
+    }
+
+    lastTargetPos = null;
+}
+
+function onResize() {
+
+    renderer.setSize($window.width() - 5, $window.height() - 5);
+
+    camera.aspect = $window.width() / $window.height();
+    camera.updateProjectionMatrix();
+}
+
+var trailsVisibles = true;
+
+function toggleTrails() {
+    trailsVisibles = !trailsVisibles;
+
+    trailTierra.visible = trailsVisibles;
+    trailLuna.visible = trailsVisibles;
+    trailIss.visible = trailsVisibles;
+
+}
+
+function resetTrails() {
+    trail1.reset();
+    trail2.reset();
+    trail3.reset();
+}
+
+function onModelsLoaded() {
+
+    $("body").keydown(function (e) {
+
+        if (e.key == "c") toggleCam();
+        if (e.key == "t") toggleTrails();
+        if (e.key == "+") {
+            speed += 0.1;
+            resetTrails();
+        }
+        if (e.key == "-") {
+            speed -= +0.1;
+            resetTrails();
+        }
+
+    });
+
+    controls.update();
+    /*
+                sol = new THREE.Mesh(new THREE.SphereGeometry( 15, 32, 32 ), materiales["sol"] );
+    */
+    sol = modelos["sol.dae"];
+    sol.material = materiales["sol"]
+
+    scene.add(sol);
+
+    //Agrego el modelo de las estrellas a la escena.
+    estrellas = modelos["estrellas.dae"];
+    estrellas.material = materiales["estrellas"]
+    scene.add(estrellas)
+
+    tierra = modelos["tierra.dae"];
+    tierra.material = materiales["tierra"]
+    tierra.position.x = 100;
+    scene.add(tierra);
+
+    iss = modelos["iss.dae"];
+    iss.material = materiales["iss"]
+    iss.position.x = 90;
+    scene.add(iss);
+
+    luna = modelos["luna.dae"];
+    luna.material = materiales["luna"]
+    luna.position.x = 130;
+    scene.add(luna);
+
+    apollo = modelos["apollo.dae"];
+    apollo.material = materiales["apollo"]
+    apollo.position.x = 135;
+    scene.add(apollo);
+
+
+    render();
+}
+
+var t = 0;
+var frame = 0;
+
+// Use esta configuracion para modificar globalmente la proporcion
+// del tiempo, independientemente del multiplicador
+// existente para el usuario.
+var multiplicador_temporal_global = 0.1
+var ajuste_temporal = 1 / multiplicador_temporal_global
+
+
+function actualizarEscena() {
+
+    /* *********************************************************************************
+
+   Ejes de coordenadas y escalas
+   -----------------------------
+
+   La grilla esta definida en el plano XZ, el eje +Y es normal al plano.
+   Cada celda de la grilla mida 20x20 unidades
+
+   Consigna
+   ---------
+
+   Definir las matrices de transformacion de la Tierra, la Luna, la Estacion Espacial (ISS) y la nave Apollo, 
+   para recrear los  movimientos reales de cada cuerpo.
+
+   Condiciones a cumplir:
+   ---------------------
+
+   1) NO ESTA PERMITIDO el uso de funciones trigonometricas (seno y coseno) para el cálculo de las orbitas, 
+      deben usar matrices de rotación y traslación para resolverlo
+
+   2) La tierra rota alrededor del sol sobre el plano XZ (ciclo anual)
+   3) La tierra tiene su eje inclinado de 23 grados respecto del eje +Y (arriba). 
+   4) La tierra rota sobre su eje (ciclo del día)
+
+   IMPORTANTE: tener en cuenta la relación de la inclinacion de 23 grados, con las estaciones del año
+               ver imágenes en la carpeta img/ para mas detalles
+
+   4) Rotación de la luna alrededor de la tierra (una vuelta cada 30 días y siempre expone la misma cara hacia la tierra)
+   5) La nave Apolo debe estar ubicada sobre la cara oculta de la luna
+   6) La ISS debe orbital alrededor de la tierra pasando por encima y por debajo de la misma
+
+   La variable tiempo, son los segundos desde que arranco la aplicación
+
+   
+   EDITAR EL CODIGO A CONTINUACION
+
+   *********************************************************************************
+   */
+
+
+    // Creo la matriz para modificar la posicion del "skysphere"
+    const galactic_equator_angle = Math.PI / 3
+
+    let mEstrellas = mat4.create();
+    // Hago la rotacion de la esfera para que coincida con la vida real
+    // source: https://physics.stackexchange.com/questions/276958/what-angle-does-our-solar-system-make-with-the-milky-way
+    mat4.rotate(mEstrellas, mEstrellas, galactic_equator_angle, [0, 0, 1])
+
+    // Escalo la esfera para que hasta desde muy lejos se siga viendo la esfera desde el lado de dentro
+    // No se si hay alguna mejor manera de hacerlo
+
+    // Encontré que este es cerca del tamaño maximo que puedo hacer la esfera antes de que
+    // deje de renderizarse completamente
+    let escalado_estrellas = 100000
+    mat4.scale(mEstrellas, mEstrellas, [escalado_estrellas, escalado_estrellas, escalado_estrellas])
+    setTransform(estrellas, mEstrellas)
+
+    // Creo las modificaciones para el resto de modelos
+    sistemaSolar()
+
+    // *********************************************************************************************
+
+    if (trail1) trail1.pushPosition(tierra.localToWorld(new THREE.Vector3(0, 0, 0)));
+    if (trail2) trail2.pushPosition(luna.localToWorld(new THREE.Vector3(0, 0, 0)));
+    if (trail3) trail3.pushPosition(iss.localToWorld(new THREE.Vector3(0, 0, 0)));
+
+    frame++;
+
+}
+
+// Arbol de movimientos
+
+// Sol -> Translacion Tierra -> ISS
+//                           -> translacion y rotacion Luna -> apollo
+//                           -> rotacion tierra
+
+function sistemaSolar() {
+    // Le hago una rotacion al sol, para que la textura del
+    // norte y sur del sol coincida con el norte y sur
+    // del sol real
+    let mSol = mat4.create();
+    mat4.rotate(mSol, mSol, -0.5 * Math.PI, [1, 0, 0])
+    setTransform(sol, mSol)
+
+    let mSistema = mat4.create();
+
+    mov_tierra(mSistema)
+}
+
+function mov_tierra(mSis) {
+    const periodo_translacion = 365 / 365 * ajuste_temporal // Lo hago respecto de los días para que sea más sencillo
+    const periodo_rotacion = 1 / 365 * ajuste_temporal
+
+
+    let mTierra = mat4.clone(mSis)
+
+    //Translacion
+
+    mat4.rotate(mTierra, mTierra, Math.PI * tiempo / periodo_translacion, [0, 1, 0])
+    mat4.translate(mTierra, mTierra, [60, 0, 0]);
+    //Cancela la rotacion que introduce la translacion
+    mat4.rotate(mTierra, mTierra, Math.PI * tiempo / periodo_translacion, [0, -1, 0])
+
+    // quiero que la luna e iss sea respecto de translacion, pero no de rotacion.
+    // Por eso lo hago acá antes de aplicar la rotacion 
+    mov_luna(mTierra)
+    mov_iss(mTierra)
+
+    const veintitres_grados_radianes = Math.PI * (23 / 180)
+
+    mat4.rotate(mTierra, mTierra, veintitres_grados_radianes, [1, 0, 0])
+    mat4.rotate(mTierra, mTierra, Math.PI * tiempo / periodo_rotacion, [0, 1, 0])
+    setTransform(tierra, mTierra);
+
+}
+
+
+function mov_luna(mTierra) {
+    // En realidad la luna da una rotacion a la tierra
+    // cada 27.32 días, pero uso 30 para
+    // apegarme al enunciado
+    const periodo_translacion = 30 / 365 * ajuste_temporal
+
+    let mLuna = mat4.clone(mTierra)
+
+    mat4.rotate(mLuna, mLuna, Math.PI * tiempo / periodo_translacion, [0, 1, 0])
+    mat4.translate(mLuna, mLuna, [20, 0, 0])
+    setTransform(luna, mLuna)
+
+    mov_apollo(mLuna)
+}
+
+function mov_apollo(mLuna) {
+    let mApollo = mat4.clone(mLuna)
+
+    mat4.rotate(mApollo, mApollo, Math.PI * 0.25, [0, 0, -1])
+
+    // 2.10 unidades es masomenos la distancia para que las patas toquen la luna.
+    // es apenas inferior al radio de la luna.
+    mat4.translate(mApollo, mApollo, [0, 2.10, 0])
+    setTransform(apollo, mApollo)
+}
+
+
+function mov_iss(mTierra) {
+    // En realidad la ISS da 15,56 rotaciones por día. Pero que daría una rotacion cada 10 días para que sea más claro
+    const periodo_translacion = (10 / 365) * ajuste_temporal
+
+    let mIss = mat4.clone(mTierra)
+
+    mat4.rotate(mIss, mIss, Math.PI * tiempo / periodo_translacion, [1, 0, 0])
+    mat4.translate(mIss, mIss, [0, 10, 0])
+    mat4.rotate(mIss, mIss, Math.PI * 0.5, [1, 0, 0])
+
+    setTransform(iss, mIss)
+}
+
+function setTransform(obj, m1) {
+    obj.position.set(0, 0, 0);
+    obj.scale.set(1, 1, 1);
+    obj.rotation.set(0, 0, 0);
+    obj.updateMatrix();
+    obj.applyMatrix4(f(m1));
+}
+
+function f(m1) {
+
+    //console.log(m1[0]+" "+m1[4]+" "+m1[1]+" "+m1[5]);
+
+    var m2 = new THREE.Matrix4();
+    m2.set(m1[0], m1[4], m1[8], m1[12],
+        m1[1], m1[5], m1[9], m1[13],
+        m1[2], m1[6], m1[10], m1[14],
+        m1[3], m1[7], m1[11], m1[15]
+    );
+
+    return m2;
+
+}
+
+
+
+function updateCameras() {
+
+    var tg = modelos[cameraTargets[currentCameraTarget]].localToWorld(new THREE.Vector3(0, 0, 0));
+    controls.target.copy(tg);
+    //console.log(t);
+    controls.update();
+
+    if (lastTargetPos != null) {
+        let delta = tg.clone();
+        delta.sub(lastTargetPos);
+        //console.log(delta);
+        camera.position.add(delta);
+    }
+    lastTargetPos = tg;
+
+}
+
+function render() {
+
+    requestAnimationFrame(render);
+    updateCameras();
+
+    actualizarEscena();
+
+    tiempo += 0.1 * speed * 1 / 60;
+    renderer.render(scene, camera, false, false);
+    $("#display").html("speed:" + speed.toFixed(2) + "<br>camera target: " + cameraTargets[currentCameraTarget]);
+
+}
+
+start();
+loadTextures();

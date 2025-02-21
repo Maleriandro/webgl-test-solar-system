@@ -1,7 +1,8 @@
+import * as THREE from 'three';
 
 
 
-function Trail(maxPoints,initialPos,tone){
+function Trail(maxPoints,initialPos,tone, scene){
 
 
     var points=[];
@@ -34,8 +35,8 @@ function Trail(maxPoints,initialPos,tone){
     }	
     
     
-    trailsGeo.addAttribute( 'position', new THREE.BufferAttribute( positions, 3 ) );
-    trailsGeo.addAttribute( 'color', new THREE.BufferAttribute( colors, 3 ) );
+    trailsGeo.setAttribute( 'position', new THREE.BufferAttribute( positions, 3 ) );
+    trailsGeo.setAttribute( 'color', new THREE.BufferAttribute( colors, 3 ) );
     trailsGeo.computeBoundingSphere();
 
     var trailsMesh = new THREE.Line( trailsGeo, trailsMat );
@@ -57,6 +58,7 @@ function Trail(maxPoints,initialPos,tone){
             var att2=trailsGeo.getAttribute("color");
 
               for (var i=0;i< maxPoints;i++)  {
+                let j;
                 
                 if (i<points.length) j=i;
                 else j=points.length-1;
@@ -79,3 +81,5 @@ function Trail(maxPoints,initialPos,tone){
 
 
 }
+
+export { Trail };
